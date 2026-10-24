@@ -1,5 +1,7 @@
 # Cedarhaven Municipal AI Knowledge Assistant
 
+> 🌐 **Live Demo URL**: [**https://chatbot-obkz.onrender.com/**](https://chatbot-obkz.onrender.com/)
+
 A document-grounded, explainable municipal AI assistant built for the fictional **Town of Cedarhaven**, featuring strict zero-hallucination guardrails, verifiable page-level citations, an interactive Citation Inspector, and a high-performance **Multi-Tier Caching Engine**.
 
 ---
