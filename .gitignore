@@ -48,3 +48,9 @@ Thumbs.db
 
 # PDF documents (keep proprietary policy documents off public git)
 *.pdf
+
+# Local IDE Reference & Interview notes (kept in local workspace only)
+DESIGN_NOTES.md
+WALKTHROUGH_15MIN_CALL.md
+backend/README.md
+frontend/README.md

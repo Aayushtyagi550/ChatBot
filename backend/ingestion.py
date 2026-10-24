@@ -4,7 +4,7 @@ import re
 from typing import List, Dict, Any, Tuple
 from pathlib import Path
 import fitz  # PyMuPDF
-from backend.config import DOCUMENTS, INGESTION_CACHE_FILE
+from backend.config import DOCUMENTS, INGESTION_CACHE_FILE, ROOT_DIR
 
 class DocumentIngester:
     def __init__(self, cache_file: Path = INGESTION_CACHE_FILE):
@@ -26,25 +26,35 @@ class DocumentIngester:
         return checksums
 
     def load_or_ingest(self, force_refresh: bool = False) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-        """Loads processed documents from disk cache if checksums match, else parses PDFs."""
+        """Loads processed documents from disk cache or permanent corpus data, else parses PDFs."""
         current_checksums = self._compute_checksums()
+        raw_pdfs_present = any(doc_meta["path"].exists() for doc_meta in DOCUMENTS.values())
 
-        if not force_refresh and self.cache_file.exists():
-            try:
-                with open(self.cache_file, "r", encoding="utf-8") as f:
-                    cached_data = json.load(f)
-                
-                cached_checksums = cached_data.get("checksums", {})
-                if cached_checksums == current_checksums:
-                    print("[Ingestion] Ingestion cache hit! Loaded pre-processed chunks from disk.")
-                    self.chunks = cached_data.get("chunks", [])
-                    self.documents = cached_data.get("documents", {})
-                    self.pages_by_doc = cached_data.get("pages_by_doc", {})
-                    return self.chunks, self.documents
-                else:
-                    print("[Ingestion] PDF checksums changed; re-ingesting documents...")
-            except Exception as e:
-                print(f"[Ingestion] Cache reading failed ({e}); re-ingesting...")
+        # Check candidate cache files: 1. Runtime cache, 2. Committed pre-processed corpus
+        candidate_files = [
+            self.cache_file,
+            ROOT_DIR / "backend" / "data" / "cedarhaven_corpus.json"
+        ]
+
+        if not force_refresh:
+            for cfile in candidate_files:
+                if cfile.exists():
+                    try:
+                        with open(cfile, "r", encoding="utf-8") as f:
+                            cached_data = json.load(f)
+                        
+                        cached_checksums = cached_data.get("checksums", {})
+                        cached_chunks = cached_data.get("chunks", [])
+
+                        # Valid if checksums match, or if running in cloud deployment where raw PDFs are absent
+                        if (cached_checksums and cached_checksums == current_checksums) or (not raw_pdfs_present and cached_chunks):
+                            print(f"[Ingestion] Loaded {len(cached_chunks)} pre-processed chunks from {cfile.name}.")
+                            self.chunks = cached_chunks
+                            self.documents = cached_data.get("documents", {})
+                            self.pages_by_doc = cached_data.get("pages_by_doc", {})
+                            return self.chunks, self.documents
+                    except Exception as e:
+                        print(f"[Ingestion] Warning reading {cfile}: {e}")
 
         # Perform actual ingestion
         self.chunks, self.documents, self.pages_by_doc = self._parse_all_pdfs()
