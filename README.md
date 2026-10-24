@@ -117,12 +117,8 @@ Test these 5 key scenarios to observe the system's core capabilities:
 │   ├── index.html            # Webpage shell
 │   ├── package.json          # Dependencies & build scripts
 │   ├── tsconfig.json         # TypeScript configuration
-│   └── vite.config.ts        # Vite development proxy & bundler config
-├── 01_Cedarhaven_Service_Request_Management.pdf   # CH-SRM-01 municipal policy
-├── 02_Cedarhaven_Bylaw_Enforcement.pdf            # CH-BYL-02 municipal policy
-├── 03_Cedarhaven_Permits_and_Licensing.pdf        # CH-PER-03 municipal policy
 ├── requirements.txt          # Python dependencies
 ├── .env.example              # Environment variables template
-├── .gitignore                # Protects secrets (.env) and cache
+├── .gitignore                # Protects secrets (.env), PDFs, and cache
 └── README.md                 # Project guide & walkthrough
 ```

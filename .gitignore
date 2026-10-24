@@ -46,5 +46,5 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
-# Assignment PDF (local prompt file)
-Wayhall_Municipal_AI_Chatbot_Technical_Assignment.pdf
+# PDF documents (keep proprietary policy documents off public git)
+*.pdf
