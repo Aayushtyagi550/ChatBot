@@ -8,7 +8,8 @@ import {
   checkHealth,
   Citation,
   CacheStats,
-  DocumentPageResponse
+  DocumentPageResponse,
+  ActionCard
 } from './services/api';
 import {
   ArrowUp,
@@ -26,7 +27,12 @@ import {
   RotateCcw,
   PanelLeftClose,
   PanelLeft,
-  MessageSquare
+  MessageSquare,
+  ClipboardList,
+  CheckCircle2,
+  Copy,
+  Check,
+  Clock
 } from 'lucide-react';
 
 interface Message {
@@ -34,6 +40,7 @@ interface Message {
   sender: 'user' | 'assistant';
   text: string;
   citations?: Citation[];
+  action_card?: ActionCard | null;
   is_supported?: boolean;
   cache_status?: 'HIT' | 'MISS';
   latency_ms?: number;
@@ -70,7 +77,9 @@ export default function App() {
   // Citation Inspector Drawer
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [selectedPage, setSelectedPage] = useState<DocumentPageResponse | null>(null);
+  const [selectedCitation, setSelectedCitation] = useState<Citation | null>(null);
   const [loadingPage, setLoadingPage] = useState(false);
+  const [copiedTicketId, setCopiedTicketId] = useState<string | null>(null);
 
   // Settings Modal
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -78,6 +87,12 @@ export default function App() {
   const [settingsMsg, setSettingsMsg] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const handleCopyTicket = (ticketText: string, messageId: string) => {
+    navigator.clipboard.writeText(ticketText);
+    setCopiedTicketId(messageId);
+    setTimeout(() => setCopiedTicketId(null), 2000);
+  };
 
   // Persist sessions to localStorage
   useEffect(() => {
@@ -147,6 +162,7 @@ export default function App() {
         sender: 'assistant',
         text: res.answer,
         citations: res.citations,
+        action_card: res.action_card,
         is_supported: res.is_supported ?? true,
         cache_status: res.cache_status,
         latency_ms: res.latency_ms,
@@ -188,6 +204,7 @@ export default function App() {
   };
 
   const handleOpenCitation = async (citation: Citation) => {
+    setSelectedCitation(citation);
     setLoadingPage(true);
     setDrawerOpen(true);
     try {
@@ -405,6 +422,71 @@ export default function App() {
                         </div>
                       )}
 
+                      {/* Municipal 311 Action Card */}
+                      {m.action_card && m.action_card.is_actionable && (
+                        <div className="action-card-box">
+                          <div className="action-card-header">
+                            <div className="action-card-title-group">
+                              <ClipboardList size={15} className="action-card-icon" />
+                              <span>{m.action_card.case_type || 'Municipal 311 Action Item'}</span>
+                            </div>
+                            {m.action_card.priority_level && (
+                              <span className="priority-badge">
+                                {m.action_card.priority_level}
+                              </span>
+                            )}
+                          </div>
+
+                          {m.action_card.target_sla && (
+                            <div className="action-sla-row">
+                              <Clock size={12} color="#71717a" />
+                              <span><strong>Target SLA:</strong> {m.action_card.target_sla}</span>
+                            </div>
+                          )}
+
+                          {m.action_card.required_evidence && m.action_card.required_evidence.length > 0 && (
+                            <div className="action-evidence-section">
+                              <div className="action-evidence-title">Required Evidence / Details</div>
+                              <ul className="action-evidence-list">
+                                {m.action_card.required_evidence.map((ev, idx) => (
+                                  <li key={idx}>
+                                    <CheckCircle2 size={12} className="check-icon" />
+                                    <span>{ev}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+
+                          {m.action_card.draft_ticket && (
+                            <div className="action-ticket-box">
+                              <div className="action-ticket-header">
+                                <span>Pre-filled 311 Ticket Draft</span>
+                                <button
+                                  type="button"
+                                  className="btn-copy-ticket"
+                                  onClick={() => handleCopyTicket(m.action_card!.draft_ticket!, m.id)}
+                                  title="Copy draft to clipboard"
+                                >
+                                  {copiedTicketId === m.id ? (
+                                    <>
+                                      <Check size={11} color="#16a34a" />
+                                      <span style={{ color: '#16a34a' }}>Copied!</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Copy size={11} />
+                                      <span>Copy Ticket</span>
+                                    </>
+                                  )}
+                                </button>
+                              </div>
+                              <pre className="action-ticket-content">{m.action_card.draft_ticket}</pre>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Discreet Performance Info */}
                       {m.sender === 'assistant' && m.cache_status && (
                         <div className="message-footer">
@@ -488,11 +570,60 @@ export default function App() {
 
           <div className="drawer-content">
             {loadingPage ? (
-              <div>Loading verified page from source PDF...</div>
+              <div style={{ color: '#71717a', fontSize: '0.85rem' }}>Loading verified page from source PDF...</div>
             ) : selectedPage ? (
-              <div>{selectedPage.content}</div>
+              (() => {
+                const quote = selectedCitation?.quote?.trim() || '';
+                const content = selectedPage.content;
+                if (!quote) {
+                  return <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: '0.85rem', color: '#27272a' }}>{content}</div>;
+                }
+
+                const quoteLower = quote.toLowerCase();
+                const contentLower = content.toLowerCase();
+                let matchIdx = contentLower.indexOf(quoteLower);
+                let matchedLen = quote.length;
+
+                // If full quote doesn't match verbatim (e.g. slight OCR or whitespace variance), try matching first 24 chars
+                if (matchIdx === -1 && quote.length > 20) {
+                  const partial = quote.slice(0, 24).toLowerCase();
+                  matchIdx = contentLower.indexOf(partial);
+                  if (matchIdx !== -1) {
+                    matchedLen = Math.min(content.length - matchIdx, quote.length + 15);
+                  }
+                }
+
+                if (matchIdx !== -1) {
+                  const before = content.slice(0, matchIdx);
+                  const matched = content.slice(matchIdx, matchIdx + matchedLen);
+                  const after = content.slice(matchIdx + matchedLen);
+                  return (
+                    <>
+                      <div className="verified-quote-banner">
+                        <CheckCircle2 size={14} />
+                        <span>Verified Municipal Source Match</span>
+                      </div>
+                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: '0.85rem', color: '#27272a' }}>
+                        {before}
+                        <mark className="quote-highlight">{matched}</mark>
+                        {after}
+                      </div>
+                    </>
+                  );
+                }
+
+                return (
+                  <>
+                    <div className="verified-quote-banner">
+                      <CheckCircle2 size={14} />
+                      <span>Referenced Quote: &ldquo;{quote.length > 80 ? quote.slice(0, 78) + '...' : quote}&rdquo;</span>
+                    </div>
+                    <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: '0.85rem', color: '#27272a' }}>{content}</div>
+                  </>
+                );
+              })()
             ) : (
-              <div>Click any citation pill to view the source page.</div>
+              <div style={{ color: '#71717a', fontSize: '0.85rem' }}>Click any citation pill to view the source page.</div>
             )}
           </div>
         </aside>

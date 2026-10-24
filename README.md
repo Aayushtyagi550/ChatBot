@@ -15,8 +15,9 @@ The assistant answers resident inquiries strictly based on three official munici
 
 ### Key Capabilities
 - **Strict Grounding & Zero Hallucination**: Every answer is backed by verifiable in-text citations referencing document ID, 1-indexed page number, and section code.
+- **Interactive 311 Action Card & Request Drafter**: Automatically detects actionable civic issues (e.g., missed waste, sidewalk obstruction, construction noise) and drafts ready-to-file 311 service tickets complete with official priority tiers, SLA targets, and required photo/address evidence checklists.
+- **Auditable Citation Source Inspector with Quote Highlighting**: Clicking any citation badge opens a side drawer displaying the full verified PDF page with the exact supporting sentence highlighted in real-time.
 - **Intent Comprehension & Out-of-Scope Filtering**: Analyzes query intent first. Unrelated questions (e.g. general science or chit-chat) are politely refused without pulling unrelated municipal text.
-- **Auditable Citation Source Inspector**: Clicking any citation badge opens a side drawer displaying the verbatim original page text directly from the source PDF.
 - **Multi-Tier Caching Engine**: SHA-256 query normalization and two-tier storage (in-memory + disk) drops repeat query latency from ~800ms down to **1.5ms**.
 - **Deliberate Gap Adherence**: Explicitly acknowledges intentional policy gaps (such as unstated parking fines or street pickup schedules) using the standard disclosure: *"The supplied Cedarhaven documents do not specify that detail."*
 

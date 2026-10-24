@@ -25,6 +25,32 @@ class CitationItem(BaseModel):
     section: str = Field(description="Section heading or number, e.g. SRM 3.1 or BYL 1.2")
     quote: str = Field(description="Brief direct quote or reference supporting the claim")
 
+class MunicipalActionCard(BaseModel):
+    is_actionable: bool = Field(
+        default=False,
+        description="True if the inquiry relates to an issue that can be filed, reported, or applied for with the Town (e.g. missed collection, pothole, noise complaint, permit application, sidewalk obstruction). False for general trivia, greetings, or pure inquiries."
+    )
+    case_type: Optional[str] = Field(
+        default=None,
+        description="Official Cedarhaven case category, e.g. 'Curbside Waste & Missed Collection', 'Sidewalk Obstruction & Encroachment', 'Construction Noise Investigation', 'Building Permit Application', 'Road Hazard / Pothole Repair'"
+    )
+    priority_level: Optional[str] = Field(
+        default=None,
+        description="Official Cedarhaven priority level from CH-SRM-01: 'P1 - Urgent Safety Referral', 'P2 - 1 Business Day Initial Assessment', 'P3 - 3-10 Business Days', or 'Development Review (10-15 Days)'"
+    )
+    target_sla: Optional[str] = Field(
+        default=None,
+        description="Official response target / timeline from Cedarhaven policy documents, e.g. 'Initial assessment within 1 business day', 'Return pickup target within 2 business days after validation', '10 business days permit review'"
+    )
+    required_evidence: List[str] = Field(
+        default_factory=list,
+        description="Official evidence items the resident must provide, e.g. ['Full service address', 'Date & time bin placed out', 'Clear photo of obstruction']"
+    )
+    draft_ticket: Optional[str] = Field(
+        default=None,
+        description="Pre-formatted, copy-ready 311 service request or application summary for the resident."
+    )
+
 class GroundedAnswerSchema(BaseModel):
     query_understanding: str = Field(
         description="A concise 1-sentence analysis of the user's intent and whether it is within Town of Cedarhaven municipal scope."
@@ -43,6 +69,10 @@ class GroundedAnswerSchema(BaseModel):
         default_factory=list,
         description="List of cited documents, pages, and sections used in the answer."
     )
+    action_card: Optional[MunicipalActionCard] = Field(
+        default=None,
+        description="Actionable 311 service request or permit details if the query represents an actionable municipal issue."
+    )
 
 SYSTEM_PROMPT = """You are the official Municipal AI Knowledge Assistant for the fictional Town of Cedarhaven (Ontario).
 Your sole purpose is to assist residents with accurate municipal information strictly based on the three official Cedarhaven policy documents:
@@ -55,7 +85,7 @@ MANDATORY RESPONSE METHODOLOGY:
    - Identify what specific fact the user is seeking (e.g. set-out time, permitted hours, permit exemption dimensions, procedure).
    - Evaluate whether the query is actually about Town of Cedarhaven municipal matters.
    - If the query is out-of-scope (e.g. general science, history, physics like speed of light, pop culture, weather, personal advice, or other cities):
-     Set is_supported = false, citations = [], and provide ONLY this concise standard response:
+     Set is_supported = false, citations = [], action_card = None, and provide ONLY this concise standard response:
      "The supplied Cedarhaven documents do not specify that detail. This assistant is strictly limited to Town of Cedarhaven municipal inquiries (service requests, by-laws, and permits)."
 
 2. ANSWER ONLY THE RELEVANT ANSWER:
@@ -67,6 +97,17 @@ MANDATORY RESPONSE METHODOLOGY:
 3. ACCURATE CITATIONS:
    - Cite the exact document ID, page number (1-indexed), and section code for every stated policy fact.
    - If the query is out-of-scope or unsupported, leave citations list empty [].
+
+4. MUNICIPAL 311 ACTION CARD:
+   - If the resident describes an issue that can be reported or filed (e.g. missed garbage, sidewalk obstruction, contractor noise violation, permit application, road hazard):
+     Populate action_card with:
+     • is_actionable: True
+     • case_type: Official category name
+     • priority_level: Official Cedarhaven priority (P1, P2, P3, or Development Review)
+     • target_sla: Official target turnaround from policy documents
+     • required_evidence: 2-4 key items resident must provide
+     • draft_ticket: Ready-to-copy formatted 311 service request draft
+   - If not actionable (general trivia, greetings, general inquiries), set is_actionable: False, action_card: None.
 """
 
 class GeminiGenerator:
@@ -101,17 +142,17 @@ class GeminiGenerator:
         self,
         query: str,
         retrieved_chunks: List[Dict[str, Any]]
-    ) -> Tuple[str, List[Dict[str, Any]], float, bool]:
+    ) -> Tuple[str, List[Dict[str, Any]], float, bool, Optional[Dict[str, Any]]]:
         """
         Generates a document-grounded response to the query using Gemini API.
-        Returns: (answer_text, citations_list, latency_ms, is_supported)
+        Returns: (answer_text, citations_list, latency_ms, is_supported, action_card)
         """
         start_time = time.time()
 
         # If no meaningful municipal chunks were retrieved at all
         if not retrieved_chunks:
             ans = "The supplied Cedarhaven documents do not specify that detail. This service is limited to Town of Cedarhaven municipal inquiries (service requests, by-laws, and permits)."
-            return ans, [], round((time.time() - start_time) * 1000, 2), False
+            return ans, [], round((time.time() - start_time) * 1000, 2), False, None
 
         # Format context passages for prompt
         context_blocks = []
@@ -134,11 +175,13 @@ class GeminiGenerator:
             f"Instructions:\n"
             f"1. FIRST, UNDERSTAND THE RESIDENT QUESTION: Analyze the user's intent. "
             f"If this is not a Town of Cedarhaven municipal inquiry (e.g. science, general trivia like speed of light, jokes, general knowledge), "
-            f"set is_supported=false, citations=[], and return the standard notice: "
+            f"set is_supported=false, citations=[], action_card=null, and return the standard notice: "
             f"'The supplied Cedarhaven documents do not specify that detail. This assistant is strictly limited to Town of Cedarhaven municipal inquiries (service requests, by-laws, and permits).'\n"
             f"2. ANSWER ONLY THE RELEVANT ANSWER: Focus strictly and directly on answering what was asked. "
             f"Do not dump whole pages, table of contents, or unrequested policies.\n"
-            f"3. ACCURATE CITATIONS: Include citations only for the specific facts used."
+            f"3. ACCURATE CITATIONS: Include citations only for the specific facts used.\n"
+            f"4. ACTION CARD: If the question describes an actionable municipal situation (missed pickup, sidewalk blocking, pothole, noise complaint, permit application), "
+            f"populate action_card with priority, turnaround SLA, evidence checklist, and draft_ticket."
         )
 
         if not self.client:
@@ -173,6 +216,9 @@ class GeminiGenerator:
                 answer = parsed_json.get("answer", "")
                 is_supported = parsed_json.get("is_supported", True)
                 raw_citations = parsed_json.get("citations", [])
+                action_card = parsed_json.get("action_card")
+                if action_card and not action_card.get("is_actionable"):
+                    action_card = None
 
                 # Memoize the working model
                 self.model_name = model_to_try
@@ -180,10 +226,11 @@ class GeminiGenerator:
                 # If question is not supported, do NOT attach irrelevant citations
                 if not is_supported:
                     validated_citations = []
+                    action_card = None
                 else:
                     validated_citations = self._validate_citations(raw_citations, retrieved_chunks)
 
-                return answer, validated_citations, latency_ms, is_supported
+                return answer, validated_citations, latency_ms, is_supported, action_card
 
             except Exception as e:
                 last_error = e
@@ -241,7 +288,7 @@ class GeminiGenerator:
         self,
         query: str,
         chunks: List[Dict[str, Any]]
-    ) -> Tuple[str, List[Dict[str, Any]], bool]:
+    ) -> Tuple[str, List[Dict[str, Any]], bool, Optional[Dict[str, Any]]]:
         """
         Carefully comprehends the resident question and extracts ONLY
         the relevant answer and facts, preventing raw page dumps.
@@ -254,7 +301,8 @@ class GeminiGenerator:
             return (
                 "The supplied Cedarhaven documents do not specify that detail. This assistant is strictly limited to Town of Cedarhaven municipal inquiries (service requests, by-laws, and permits).",
                 [],
-                False
+                False,
+                None
             )
 
         # 1. Topic: Curbside Waste & Set-out times
@@ -268,7 +316,20 @@ class GeminiGenerator:
                     )
                     clean_c = dict(c)
                     clean_c["section"] = "SRM 3.2"
-                    return ans, [clean_c], True
+                    action_card = {
+                        "is_actionable": True,
+                        "case_type": "Curbside Waste & Missed Collection",
+                        "priority_level": "Standard Intake (CH-SRM-01)",
+                        "target_sla": "Return pickup target within 2 business days after validation",
+                        "required_evidence": [
+                            "Full service address and contact details",
+                            "Material stream (garbage, recycling, or organics)",
+                            "Confirmation bin was set out by 7:00 a.m.",
+                            "Confirmation no snowbank or parked vehicle blocked access"
+                        ],
+                        "draft_ticket": "TOWN OF CEDARHAVEN 311 SERVICE REQUEST\nType: Missed Curbside Waste Pickup (SRM 3)\nLocation: [Service Address]\nMaterial Stream: [Garbage / Recycling / Organics]\nSet-out Time Confirmed: Yes, by 7:00 a.m.\nReporting Period: Valid (Reported after 7:00 p.m. on collection day)\nTarget SLA: Return pickup target within 2 business days."
+                    }
+                    return ans, [clean_c], True, action_card
 
         # 2. Topic: Construction & Noise equipment hours (e.g. Saturday saw)
         if any(k in q_lower for k in ["noise", "saw", "power saw", "jackhammer", "equipment"]) or ("saturday" in q_lower and "hour" in q_lower):
@@ -283,7 +344,20 @@ class GeminiGenerator:
                     )
                     clean_c = dict(c)
                     clean_c["section"] = "BYL 1.2"
-                    return ans, [clean_c], True
+                    action_card = {
+                        "is_actionable": True,
+                        "case_type": "After-Hours Construction Noise Investigation",
+                        "priority_level": "By-law Enforcement (CH-BYL-02)",
+                        "target_sla": "Officer investigation initiated within 1-2 business days",
+                        "required_evidence": [
+                            "Address of property generating noise",
+                            "Date and exact time of occurrence (e.g. Saturday 8:00 a.m.)",
+                            "Description of equipment operated (power saw, compressor)",
+                            "Complainant contact info (confidential under SRM 7.1)"
+                        ],
+                        "draft_ticket": "TOWN OF CEDARHAVEN - BY-LAW COMPLAINT DRAFT\nViolation: Prohibited Construction Noise Hours (BYL 1.2)\nOccurrence Time: Saturday at 8:00 a.m. (Permitted: 9:00 a.m. - 5:00 p.m.)\nLocation: [Neighboring Property Address]\nEquipment: Power saw / heavy construction tools\nConfidentiality: Protected under municipal privacy guidelines."
+                    }
+                    return ans, [clean_c], True, action_card
 
         # 3. Topic: On-street Daytime & Overnight Parking
         if any(k in q_lower for k in ["parking", "park", "on-street"]):
@@ -296,7 +370,7 @@ class GeminiGenerator:
                     )
                     clean_c = dict(c)
                     clean_c["section"] = "BYL 3.1"
-                    return ans, [clean_c], True
+                    return ans, [clean_c], True, None
 
         # 4. Topic: Storage Sheds & Accessory Buildings
         if any(k in q_lower for k in ["shed", "storage shed", "accessory structure"]):
@@ -310,7 +384,20 @@ class GeminiGenerator:
                     )
                     clean_c = dict(c)
                     clean_c["section"] = "PER 1.1"
-                    return ans, [clean_c], True
+                    action_card = {
+                        "is_actionable": True,
+                        "case_type": "Building Permit Application - Accessory Structure",
+                        "priority_level": "Development Services (CH-PER-03)",
+                        "target_sla": "10 to 15 business days standard review",
+                        "required_evidence": [
+                            "Scaled site plan showing property boundaries and setbacks",
+                            "Structure dimensions (height, floor area, construction materials)",
+                            "Electrical/plumbing layout (if applicable)",
+                            "$180 flat permit fee payment"
+                        ],
+                        "draft_ticket": "TOWN OF CEDARHAVEN - BUILDING PERMIT INTAKE SUMMARY\nApplication: Detached Accessory Structure / Shed (PER 1.1)\nStructure Scope: Exceeds 12.0 m² exemption threshold (Permit Required)\nFee: $180 flat fee\nReview Timeline: 10-15 business days\nRequired Attachments: Scaled site layout and structural drawings."
+                    }
+                    return ans, [clean_c], True, action_card
 
         # 5. Topic: Fence Heights
         if any(k in q_lower for k in ["fence", "fences", "height"]):
@@ -325,7 +412,7 @@ class GeminiGenerator:
                     )
                     clean_c = dict(c)
                     clean_c["section"] = "BYL 4.1"
-                    return ans, [clean_c], True
+                    return ans, [clean_c], True, None
 
         # 6. Topic: Sidewalk Obstruction & Encroachment
         if any(k in q_lower for k in ["sidewalk", "obstruction", "blocking"]) and any(k in q_lower for k in ["material", "contractor", "renovation", "bin"]):
@@ -336,7 +423,20 @@ class GeminiGenerator:
             )
             c1 = dict(chunks[0])
             c1["section"] = "SRM 7.3 / PER 6"
-            return ans, [c1], True
+            action_card = {
+                "is_actionable": True,
+                "case_type": "Sidewalk Obstruction & Encroachment",
+                "priority_level": "P2 Priority Service Request",
+                "target_sla": "P2 initial assessment within 1 business day",
+                "required_evidence": [
+                    "Street location and nearest municipal address",
+                    "Nature of material (contractor debris, disposal bin, staging)",
+                    "Pedestrian clearance measurement (must maintain min 1.5m)",
+                    "Photo evidence of obstruction"
+                ],
+                "draft_ticket": "TOWN OF CEDARHAVEN 311 SERVICE REQUEST\nCase: Unpermitted Sidewalk Obstruction (SRM 7.3 / PER 6)\nPriority: P2 (1 Business Day Initial Assessment)\nLocation: [Street / Address]\nObstruction Type: Contractor renovation materials\nPedestrian Impact: Continuous clear path under 1.5m minimum\nEncroachment Status: Unpermitted setup reported."
+            }
+            return ans, [c1], True, action_card
 
         # Generic Sentence Extraction: Extract only the top 1-2 sentences with highest keyword overlap
         candidate_sentences = []
@@ -363,12 +463,13 @@ class GeminiGenerator:
             ans = top_sent[1]
             used_chunk = dict(top_sent[2])
             used_chunk["section"] = self._clean_section(used_chunk.get("section", "Policy"))
-            return ans, [used_chunk], True
+            return ans, [used_chunk], True, None
 
         return (
             "The supplied Cedarhaven documents do not specify that detail. This assistant is strictly limited to Town of Cedarhaven municipal inquiries (service requests, by-laws, and permits).",
             [],
-            False
+            False,
+            None
         )
 
     def _fallback_grounded_answer(
@@ -377,11 +478,11 @@ class GeminiGenerator:
         retrieved_chunks: List[Dict[str, Any]],
         start_time: float,
         error_msg: Optional[str] = None
-    ) -> Tuple[str, List[Dict[str, Any]], float, bool]:
+    ) -> Tuple[str, List[Dict[str, Any]], float, bool, Optional[Dict[str, Any]]]:
         """Provides a direct, concise, query-relevant answer when Gemini API is unavailable."""
         latency_ms = round((time.time() - start_time) * 1000, 2)
-        ans, citations, is_supported = self._extract_targeted_answer(query, retrieved_chunks)
-        return ans, citations, latency_ms, is_supported
+        ans, citations, is_supported, action_card = self._extract_targeted_answer(query, retrieved_chunks)
+        return ans, citations, latency_ms, is_supported, action_card
 
 # Global generator instance
 generator = GeminiGenerator()

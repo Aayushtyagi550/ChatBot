@@ -17,11 +17,21 @@ export interface RetrievedChunk {
   score: number;
 }
 
+export interface ActionCard {
+  is_actionable: boolean;
+  case_type?: string;
+  priority_level?: string;
+  target_sla?: string;
+  required_evidence?: string[];
+  draft_ticket?: string;
+}
+
 export interface ChatResponse {
   answer: string;
   citations: Citation[];
   retrieved_chunks: RetrievedChunk[];
   is_supported?: boolean;
+  action_card?: ActionCard | null;
   cache_status: 'HIT' | 'MISS';
   cached_at?: number;
   hit_count?: number;

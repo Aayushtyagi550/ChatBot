@@ -134,7 +134,7 @@ def chat(req: ChatRequest):
     retrieved = retriever.retrieve(query, top_k=5)
 
     # 3. Gemini Generation with Grounding & Guardrails
-    answer, citations, latency_ms, is_supported = generator.generate_answer(query, retrieved)
+    answer, citations, latency_ms, is_supported, action_card = generator.generate_answer(query, retrieved)
 
     # 4. Save to Cache
     if req.use_cache and answer:
@@ -144,7 +144,8 @@ def chat(req: ChatRequest):
             citations=citations,
             retrieved_chunks=retrieved,
             original_latency_ms=latency_ms,
-            is_supported=is_supported
+            is_supported=is_supported,
+            action_card=action_card
         )
 
     return {
@@ -152,6 +153,7 @@ def chat(req: ChatRequest):
         "citations": citations,
         "retrieved_chunks": retrieved,
         "is_supported": is_supported,
+        "action_card": action_card,
         "cache_status": "MISS",
         "cached_at": None,
         "hit_count": 0,

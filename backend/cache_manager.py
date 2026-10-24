@@ -89,6 +89,7 @@ class CacheManager:
             "citations": entry.get("citations", []),
             "retrieved_chunks": entry.get("retrieved_chunks", []),
             "is_supported": entry.get("is_supported", True),
+            "action_card": entry.get("action_card"),
             "cache_status": "HIT",
             "cached_at": entry.get("timestamp"),
             "hit_count": entry["hit_count"],
@@ -103,7 +104,8 @@ class CacheManager:
         citations: List[Dict[str, Any]],
         retrieved_chunks: List[Dict[str, Any]],
         original_latency_ms: float,
-        is_supported: bool = True
+        is_supported: bool = True,
+        action_card: Optional[Dict[str, Any]] = None
     ) -> None:
         """Stores a new query response in cache and syncs to disk."""
         normalized = self.normalize_query(query)
@@ -116,6 +118,7 @@ class CacheManager:
             "citations": citations,
             "retrieved_chunks": retrieved_chunks,
             "is_supported": is_supported,
+            "action_card": action_card,
             "timestamp": time.time(),
             "original_latency_ms": original_latency_ms,
             "hit_count": 0
